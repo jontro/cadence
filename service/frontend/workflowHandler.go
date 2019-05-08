@@ -167,7 +167,7 @@ func NewWorkflowHandler(sVice service.Service, config *Config, metadataMgr persi
 			sVice.GetLogger(),
 			metadataMgr,
 			sVice.GetClusterMetadata(),
-			blobstoreClient,
+			blobstoreClient, // TODO: this should be using metrics blobstore
 			NewDomainReplicator(kafkaProducer, sVice.GetLogger()),
 		),
 	}
@@ -1621,6 +1621,7 @@ func (wh *WorkflowHandler) StartWorkflowExecution(
 func (wh *WorkflowHandler) GetWorkflowExecutionHistory(
 	ctx context.Context,
 	getRequest *gen.GetWorkflowExecutionHistoryRequest) (resp *gen.GetWorkflowExecutionHistoryResponse, retError error) {
+	wh.GetLogger().Info("andrew: GetWorkflowExecutionHistory 1")
 	defer log.CapturePanic(wh.GetLogger(), &retError)
 
 	scope := wh.metricsClient.Scope(metrics.FrontendGetWorkflowExecutionHistoryScope)
@@ -1671,6 +1672,7 @@ func (wh *WorkflowHandler) GetWorkflowExecutionHistory(
 	configuredForArchival := wh.GetClusterMetadata().ArchivalConfig().ConfiguredForArchival()
 	enableArchivalRead := wh.GetClusterMetadata().ArchivalConfig().EnableReadFromArchival()
 	historyArchived := wh.historyArchived(ctx, getRequest, domainID)
+	wh.GetLogger().Info("andrew: GetWorkflowExecutionHistory 2", tag.Bool(configuredForArchival), tag.Bool(enableArchivalRead), tag.Bool(historyArchived))
 	if configuredForArchival && enableArchivalRead && historyArchived {
 		return wh.getArchivedHistory(ctx, getRequest, domainID, scope)
 	}
@@ -3198,7 +3200,7 @@ func (wh *WorkflowHandler) getArchivedHistory(
 	domainID string,
 	scope metrics.Scope,
 ) (*gen.GetWorkflowExecutionHistoryResponse, error) {
-
+	wh.GetLogger().Info("andrew: called getArchivedHistory 1")
 	entry, err := wh.domainCache.GetDomainByID(domainID)
 	if err != nil {
 		return nil, wh.error(err, scope)
@@ -3222,6 +3224,7 @@ func (wh *WorkflowHandler) getArchivedHistory(
 	if err != nil {
 		return nil, wh.error(err, scope)
 	}
+	wh.GetLogger().Info("andrew: called getArchivedHistory 2")
 	b, err := wh.blobstoreClient.Download(ctx, archivalBucket, key)
 	if err != nil {
 		return nil, wh.error(err, scope)
