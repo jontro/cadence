@@ -1269,7 +1269,7 @@ struct CountWorkflowExecutionsResponse {
   10: optional i64 count
 }
 
-struct GetIndexedKeysResponse {
+struct GetSearchAttributesResponse {
   10: optional map<string, IndexedValueType> keys
 }
 
