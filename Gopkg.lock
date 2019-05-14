@@ -811,7 +811,8 @@
   revision = "ce2550dad7144b81ae2f67dc5e55597643f6902b"
 
 [[projects]]
-  digest = "1:784f792af084d9dfb8ad5a8ee1251ea29f61328ba22cdd29738e45380e635f2e"
+  branch = "close_body"
+  digest = "1:5af231478bfad6a4a29303e30590fc2392670c48a79b9637d66a9d64e4764c70"
   name = "go.uber.org/yarpc"
   packages = [
     ".",
@@ -849,8 +850,7 @@
     "yarpcerrors",
   ]
   pruneopts = ""
-  revision = "c0aa7d55bd8a5a507d5e1bed74393daf0c41c77f"
-  version = "v1.37.2"
+  revision = "6dadc73fb5730afacf42b2c168de6418e66633aa"
 
 [[projects]]
   digest = "1:246f378f80fba6fcf0f191c486b6613265abd2bc0f2fa55a36b928c67352021e"
