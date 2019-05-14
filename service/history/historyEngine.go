@@ -3277,6 +3277,7 @@ func getStartRequest(domainID string,
 		RetryPolicy:                         request.RetryPolicy,
 		CronSchedule:                        request.CronSchedule,
 		Memo:                                request.Memo,
+		SearchAttributes:                    request.SearchAttributes,
 		Header:                              request.Header,
 	}
 

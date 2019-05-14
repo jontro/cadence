@@ -1562,6 +1562,10 @@ func (wh *WorkflowHandler) StartWorkflowExecution(
 		return nil, wh.error(errRequestIDTooLong, scope)
 	}
 
+	if err := wh.validateSearchAttributes(startRequest.SearchAttributes); err != nil {
+		return nil, wh.error(&gen.BadRequestError{Message: err.Error()}, scope)
+	}
+
 	maxDecisionTimeout := int32(wh.config.MaxDecisionStartToCloseTimeout(startRequest.GetDomain()))
 	// TODO: remove this assignment and logging in future, so that frontend will just return bad request for large decision timeout
 	if startRequest.GetTaskStartToCloseTimeoutSeconds() > startRequest.GetExecutionStartToCloseTimeoutSeconds() {
@@ -2001,6 +2005,10 @@ func (wh *WorkflowHandler) SignalWithStartWorkflowExecution(ctx context.Context,
 
 	if err := cron.ValidateSchedule(signalWithStartRequest.GetCronSchedule()); err != nil {
 		return nil, wh.error(err, scope)
+	}
+
+	if err := wh.validateSearchAttributes(signalWithStartRequest.SearchAttributes); err != nil {
+		return nil, wh.error(&gen.BadRequestError{Message: err.Error()}, scope)
 	}
 
 	maxDecisionTimeout := int32(wh.config.MaxDecisionStartToCloseTimeout(signalWithStartRequest.GetDomain()))
@@ -3324,6 +3332,21 @@ func (wh *WorkflowHandler) convertIndexedKeys(keys map[string]interface{}) map[s
 		}
 	}
 	return converted
+}
+
+func (wh *WorkflowHandler) validateSearchAttributes(input *gen.SearchAttributes) error {
+	if input == nil {
+		return nil
+	}
+	for key := range input.GetIndexedFields() {
+		if !wh.isValidSearchAttributes(key) {
+			return fmt.Errorf("%s is not valid search attribute", key)
+		}
+		if definition.IsSystemIndexedKey(key) {
+			return fmt.Errorf("%s is read-only Cadence reservered attribute", key)
+		}
+	}
+	return nil
 }
 
 // validateListRequestForQuery validate that search attributes in listRequest query is legal,
