@@ -588,14 +588,6 @@
   version = "v1.2.1"
 
 [[projects]]
-  digest = "1:74f86c458e82e1c4efbab95233e0cf51b7cc02dc03193be9f62cd81224e10401"
-  name = "github.com/uber-go/atomic"
-  packages = ["."]
-  pruneopts = ""
-  revision = "1ea20fb1cbb1cc08cbd0d913a96dead89aa18289"
-  version = "v1.3.2"
-
-[[projects]]
   digest = "1:29360a122ba04967f6749a9a2a627ba7fec0d0d009cd88de1f21fd562a71470b"
   name = "github.com/uber-go/kafka-client"
   packages = [
@@ -659,7 +651,8 @@
   version = "v0.8.5"
 
 [[projects]]
-  digest = "1:3a8805ebd012a74b08ff9a594bca1391760d8ab4be50053bfccf01ca3616d3a4"
+  branch = "sized_frame_pool"
+  digest = "1:82a49c7d07b457517b684f28393e2eadd7a868772b1649d147e8a7191a4be1cc"
   name = "github.com/uber/tchannel-go"
   packages = [
     ".",
@@ -676,8 +669,7 @@
     "typed",
   ]
   pruneopts = ""
-  revision = "4e23485fd5de65e8676619a55e711eea7437041e"
-  version = "v1.13.0"
+  revision = "6046a3ef720d9b63f37786141da5b8811647c23e"
 
 [[projects]]
   branch = "master"
@@ -811,7 +803,8 @@
   revision = "ce2550dad7144b81ae2f67dc5e55597643f6902b"
 
 [[projects]]
-  digest = "1:784f792af084d9dfb8ad5a8ee1251ea29f61328ba22cdd29738e45380e635f2e"
+  branch = "close_body"
+  digest = "1:5af231478bfad6a4a29303e30590fc2392670c48a79b9637d66a9d64e4764c70"
   name = "go.uber.org/yarpc"
   packages = [
     ".",
@@ -849,8 +842,7 @@
     "yarpcerrors",
   ]
   pruneopts = ""
-  revision = "c0aa7d55bd8a5a507d5e1bed74393daf0c41c77f"
-  version = "v1.37.2"
+  revision = "6dadc73fb5730afacf42b2c168de6418e66633aa"
 
 [[projects]]
   digest = "1:246f378f80fba6fcf0f191c486b6613265abd2bc0f2fa55a36b928c67352021e"
