@@ -588,14 +588,6 @@
   version = "v1.2.1"
 
 [[projects]]
-  digest = "1:74f86c458e82e1c4efbab95233e0cf51b7cc02dc03193be9f62cd81224e10401"
-  name = "github.com/uber-go/atomic"
-  packages = ["."]
-  pruneopts = ""
-  revision = "1ea20fb1cbb1cc08cbd0d913a96dead89aa18289"
-  version = "v1.3.2"
-
-[[projects]]
   digest = "1:29360a122ba04967f6749a9a2a627ba7fec0d0d009cd88de1f21fd562a71470b"
   name = "github.com/uber-go/kafka-client"
   packages = [
@@ -659,7 +651,8 @@
   version = "v0.8.5"
 
 [[projects]]
-  digest = "1:3a8805ebd012a74b08ff9a594bca1391760d8ab4be50053bfccf01ca3616d3a4"
+  branch = "sized_frame_pool"
+  digest = "1:82a49c7d07b457517b684f28393e2eadd7a868772b1649d147e8a7191a4be1cc"
   name = "github.com/uber/tchannel-go"
   packages = [
     ".",
@@ -676,8 +669,7 @@
     "typed",
   ]
   pruneopts = ""
-  revision = "4e23485fd5de65e8676619a55e711eea7437041e"
-  version = "v1.13.0"
+  revision = "6046a3ef720d9b63f37786141da5b8811647c23e"
 
 [[projects]]
   branch = "master"
