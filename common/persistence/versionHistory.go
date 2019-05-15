@@ -160,3 +160,8 @@ func (h *VersionHistories) AddHistory(item VersionHistoryItem, local VersionHist
 	}
 	return nil
 }
+
+// GetHistories returns the batch histories
+func (h *VersionHistories) GetHistories() []VersionHistory {
+	return h.versionHistories
+}
