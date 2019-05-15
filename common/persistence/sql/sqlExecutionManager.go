@@ -235,6 +235,7 @@ func (m *sqlExecutionManager) GetWorkflowExecution(request *p.GetWorkflowExecuti
 		BranchToken:                  info.GetEventBranchToken(),
 		ExecutionContext:             info.GetExecutionContext(),
 		NonRetriableErrors:           info.GetRetryNonRetryableErrors(),
+		SearchAttributes:             info.GetSearchAttributes(),
 	}
 
 	if info.LastWriteEventID != nil {
@@ -1423,6 +1424,7 @@ func createExecutionFromRequest(
 		ExecutionContext:             request.ExecutionContext,
 		AutoResetPoints:              request.PreviousAutoResetPoints.Data,
 		AutoResetPointsEncoding:      common.StringPtr(string(request.PreviousAutoResetPoints.GetEncoding())),
+		SearchAttributes:             request.SearchAttributes,
 	}
 	if request.ReplicationState != nil {
 		lastWriteVersion = request.ReplicationState.LastWriteVersion
@@ -1922,6 +1924,7 @@ func buildExecutionRow(executionInfo *p.InternalWorkflowExecutionInfo,
 		EventBranchToken:             executionInfo.BranchToken,
 		AutoResetPoints:              executionInfo.AutoResetPoints.Data,
 		AutoResetPointsEncoding:      common.StringPtr(string(executionInfo.AutoResetPoints.GetEncoding())),
+		SearchAttributes:             executionInfo.SearchAttributes,
 	}
 
 	completionEvent := executionInfo.CompletionEvent
