@@ -21,6 +21,7 @@
 package sql
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -76,11 +77,14 @@ func (m *sqlExecutionManager) createWorkflowExecutionTx(tx sqldb.Tx, request *p.
 		request.CloseStatus); err != nil {
 		return nil, err
 	}
-	if request.CreateWorkflowMode == p.CreateWorkflowModeContinueAsNew {
+	switch request.CreateWorkflowMode {
+	case p.CreateWorkflowModeContinueAsNew:
+		// cannot create workflow with continue as new mode
 		return nil, &workflow.InternalServiceError{
 			Message: "CreateWorkflowExecution operation failed. Invalid CreateWorkflowModeContinueAsNew is used",
 		}
 	}
+
 	var err error
 	var row *sqldb.CurrentExecutionsRow
 	workflowID := *request.Execution.WorkflowId
@@ -222,7 +226,8 @@ func (m *sqlExecutionManager) GetWorkflowExecution(request *p.GetWorkflowExecuti
 		DecisionRequestID:            info.GetDecisionRequestID(),
 		DecisionTimeout:              info.GetDecisionTimeout(),
 		DecisionAttempt:              info.GetDecisionAttempt(),
-		DecisionTimestamp:            info.GetDecisionTimestampNanos(),
+		DecisionStartedTimestamp:     info.GetDecisionTimestampNanos(),
+		DecisionScheduledTimestamp:   info.GetDecisionScheduledTimestampNanos(),
 		StickyTaskList:               info.GetStickyTaskList(),
 		StickyScheduleToStartTimeout: int32(info.GetStickyScheduleToStartTimeout()),
 		ClientLibraryVersion:         info.GetClientLibraryVersion(),
@@ -544,11 +549,42 @@ func (m *sqlExecutionManager) updateWorkflowExecutionTx(tx sqldb.Tx, request *p.
 	}
 
 	if request.ContinueAsNew != nil {
-		newDomainID := sqldb.MustParseUUID(request.ContinueAsNew.DomainID)
-		newRunID := sqldb.MustParseUUID(request.ContinueAsNew.Execution.GetRunId())
-		if err := createOrUpdateCurrentExecution(tx, request.ContinueAsNew, shardID, newDomainID, newRunID,
-			request.ContinueAsNew.State, request.ContinueAsNew.CloseStatus); err != nil {
+		// validate workflow state & close status
+		if err := p.ValidateCreateWorkflowStateCloseStatus(
+			request.ContinueAsNew.State,
+			request.ContinueAsNew.CloseStatus); err != nil {
 			return err
+		}
+		newDomainID := sqldb.MustParseUUID(request.ContinueAsNew.DomainID)
+		if !bytes.Equal(domainID, newDomainID) {
+			return &workflow.InternalServiceError{
+				Message: fmt.Sprintf("UpdateWorkflowExecution. Cannot continue as new to another domain"),
+			}
+		}
+
+		newRunID := sqldb.MustParseUUID(request.ContinueAsNew.Execution.GetRunId())
+
+		startVersion := common.EmptyVersion
+		lastWriteVersion := common.EmptyVersion
+		if request.ContinueAsNew.ReplicationState != nil {
+			startVersion = request.ReplicationState.StartVersion
+			lastWriteVersion = request.ReplicationState.LastWriteVersion
+		}
+
+		if err := assertAndUpdateCurrentExecution(tx,
+			shardID,
+			domainID,
+			workflowID,
+			newRunID,
+			runID,
+			request.ContinueAsNew.RequestID,
+			request.ContinueAsNew.State,
+			request.ContinueAsNew.CloseStatus,
+			startVersion,
+			lastWriteVersion); err != nil {
+			return &workflow.InternalServiceError{
+				Message: fmt.Sprintf("UpdateWorkflowExecution. Failed to continue as new current execution. Error: %v", err),
+			}
 		}
 
 		if err := createExecutionFromRequest(tx, request.ContinueAsNew, shardID, newDomainID, newRunID, time.Now()); err != nil {
@@ -581,12 +617,12 @@ func (m *sqlExecutionManager) updateWorkflowExecutionTx(tx sqldb.Tx, request *p.
 			lastWriteVersion = request.ReplicationState.LastWriteVersion
 		}
 		// this is only to update the current record
-		if err := continueAsNew(tx,
-			m.shardID,
+		if err := assertAndUpdateCurrentExecution(tx,
+			shardID,
 			domainID,
-			executionInfo.WorkflowID,
+			workflowID,
 			runID,
-			executionInfo.RunID,
+			runID,
 			executionInfo.CreateRequestID,
 			executionInfo.State,
 			executionInfo.CloseStatus,
@@ -656,7 +692,6 @@ func (m *sqlExecutionManager) ResetWorkflowExecution(request *p.InternalResetWor
 		}
 
 		// 1. update current execution
-		// TODO: https://github.com/uber/cadence/issues/1679
 		if err := updateCurrentExecution(tx,
 			shardID,
 			domainID,
@@ -863,20 +898,21 @@ func (m *sqlExecutionManager) resetMutableStateTx(tx sqldb.Tx, request *p.Intern
 	replicationState := request.ReplicationState
 	domainID := sqldb.MustParseUUID(info.DomainID)
 	runID := sqldb.MustParseUUID(info.RunID)
+	prevRunID := sqldb.MustParseUUID(request.PrevRunID)
 
-	if err := updateCurrentExecution(tx,
+	if err := assertAndUpdateCurrentExecution(tx,
 		m.shardID,
 		domainID,
 		info.WorkflowID,
 		runID,
+		prevRunID,
 		info.CreateRequestID,
 		info.State,
 		info.CloseStatus,
 		replicationState.StartVersion,
-		replicationState.LastWriteVersion,
-	); err != nil {
+		replicationState.LastWriteVersion); err != nil {
 		return &workflow.InternalServiceError{
-			Message: fmt.Sprintf("CreateWorkflowExecution operation failed. Failed to continue as new. Error: %v", err),
+			Message: fmt.Sprintf("ResetMutableState. Failed to comare and swat the current record. Error: %v", err),
 		}
 	}
 
@@ -1841,7 +1877,7 @@ func createTimerTasks(
 	return nil
 }
 
-func continueAsNew(tx sqldb.Tx, shardID int, domainID sqldb.UUID, workflowID string, newRunID sqldb.UUID, previousRunID string,
+func assertAndUpdateCurrentExecution(tx sqldb.Tx, shardID int, domainID sqldb.UUID, workflowID string, newRunID sqldb.UUID, previousRunID sqldb.UUID,
 	createRequestID string, state int, closeStatus int, startVersion int64, lastWriteVersion int64) error {
 	runID, err := tx.LockCurrentExecutions(&sqldb.CurrentExecutionsFilter{
 		ShardID: int64(shardID), DomainID: domainID, WorkflowID: workflowID})
@@ -1850,7 +1886,7 @@ func continueAsNew(tx sqldb.Tx, shardID int, domainID sqldb.UUID, workflowID str
 			Message: fmt.Sprintf("ContinueAsNew failed. Failed to check current run ID. Error: %v", err),
 		}
 	}
-	if runID.String() != previousRunID {
+	if !bytes.Equal(runID, previousRunID) {
 		return &p.ConditionFailedError{
 			Msg: fmt.Sprintf("ContinueAsNew failed. Current run ID was %v, expected %v", runID, previousRunID),
 		}
@@ -1895,48 +1931,49 @@ func buildExecutionRow(executionInfo *p.InternalWorkflowExecutionInfo,
 	shardID int) (row *sqldb.ExecutionsRow, err error) {
 	lastWriteVersion := common.EmptyVersion
 	info := &sqlblobs.WorkflowExecutionInfo{
-		TaskList:                     &executionInfo.TaskList,
-		WorkflowTypeName:             &executionInfo.WorkflowTypeName,
-		WorkflowTimeoutSeconds:       &executionInfo.WorkflowTimeout,
-		DecisionTaskTimeoutSeconds:   &executionInfo.DecisionTimeoutValue,
-		ExecutionContext:             executionInfo.ExecutionContext,
-		State:                        common.Int32Ptr(int32(executionInfo.State)),
-		CloseStatus:                  common.Int32Ptr(int32(executionInfo.CloseStatus)),
-		LastFirstEventID:             &executionInfo.LastFirstEventID,
-		LastProcessedEvent:           &executionInfo.LastProcessedEvent,
-		StartTimeNanos:               common.Int64Ptr(executionInfo.StartTimestamp.UnixNano()),
-		LastUpdatedTimeNanos:         common.TimeNowNanosPtr(),
-		CreateRequestID:              &executionInfo.CreateRequestID,
-		DecisionVersion:              &executionInfo.DecisionVersion,
-		DecisionScheduleID:           &executionInfo.DecisionScheduleID,
-		DecisionStartedID:            &executionInfo.DecisionStartedID,
-		DecisionRequestID:            &executionInfo.DecisionRequestID,
-		DecisionTimeout:              &executionInfo.DecisionTimeout,
-		DecisionAttempt:              &executionInfo.DecisionAttempt,
-		DecisionTimestampNanos:       &executionInfo.DecisionTimestamp,
-		StickyTaskList:               &executionInfo.StickyTaskList,
-		StickyScheduleToStartTimeout: common.Int64Ptr(int64(executionInfo.StickyScheduleToStartTimeout)),
-		ClientLibraryVersion:         &executionInfo.ClientLibraryVersion,
-		ClientFeatureVersion:         &executionInfo.ClientFeatureVersion,
-		ClientImpl:                   &executionInfo.ClientImpl,
-		CurrentVersion:               common.Int64Ptr(common.EmptyVersion),
-		SignalCount:                  common.Int64Ptr(int64(executionInfo.SignalCount)),
-		HistorySize:                  &executionInfo.HistorySize,
-		CronSchedule:                 &executionInfo.CronSchedule,
-		CompletionEventBatchID:       &executionInfo.CompletionEventBatchID,
-		HasRetryPolicy:               &executionInfo.HasRetryPolicy,
-		RetryAttempt:                 common.Int64Ptr(int64(executionInfo.Attempt)),
-		RetryInitialIntervalSeconds:  &executionInfo.InitialInterval,
-		RetryBackoffCoefficient:      &executionInfo.BackoffCoefficient,
-		RetryMaximumIntervalSeconds:  &executionInfo.MaximumInterval,
-		RetryMaximumAttempts:         &executionInfo.MaximumAttempts,
-		RetryExpirationSeconds:       &executionInfo.ExpirationSeconds,
-		RetryExpirationTimeNanos:     common.Int64Ptr(executionInfo.ExpirationTime.UnixNano()),
-		RetryNonRetryableErrors:      executionInfo.NonRetriableErrors,
-		EventStoreVersion:            &executionInfo.EventStoreVersion,
-		EventBranchToken:             executionInfo.BranchToken,
-		AutoResetPoints:              executionInfo.AutoResetPoints.Data,
-		AutoResetPointsEncoding:      common.StringPtr(string(executionInfo.AutoResetPoints.GetEncoding())),
+		TaskList:                        &executionInfo.TaskList,
+		WorkflowTypeName:                &executionInfo.WorkflowTypeName,
+		WorkflowTimeoutSeconds:          &executionInfo.WorkflowTimeout,
+		DecisionTaskTimeoutSeconds:      &executionInfo.DecisionTimeoutValue,
+		ExecutionContext:                executionInfo.ExecutionContext,
+		State:                           common.Int32Ptr(int32(executionInfo.State)),
+		CloseStatus:                     common.Int32Ptr(int32(executionInfo.CloseStatus)),
+		LastFirstEventID:                &executionInfo.LastFirstEventID,
+		LastProcessedEvent:              &executionInfo.LastProcessedEvent,
+		StartTimeNanos:                  common.Int64Ptr(executionInfo.StartTimestamp.UnixNano()),
+		LastUpdatedTimeNanos:            common.TimeNowNanosPtr(),
+		CreateRequestID:                 &executionInfo.CreateRequestID,
+		DecisionVersion:                 &executionInfo.DecisionVersion,
+		DecisionScheduleID:              &executionInfo.DecisionScheduleID,
+		DecisionStartedID:               &executionInfo.DecisionStartedID,
+		DecisionRequestID:               &executionInfo.DecisionRequestID,
+		DecisionTimeout:                 &executionInfo.DecisionTimeout,
+		DecisionAttempt:                 &executionInfo.DecisionAttempt,
+		DecisionTimestampNanos:          &executionInfo.DecisionStartedTimestamp,
+		DecisionScheduledTimestampNanos: &executionInfo.DecisionScheduledTimestamp,
+		StickyTaskList:                  &executionInfo.StickyTaskList,
+		StickyScheduleToStartTimeout:    common.Int64Ptr(int64(executionInfo.StickyScheduleToStartTimeout)),
+		ClientLibraryVersion:            &executionInfo.ClientLibraryVersion,
+		ClientFeatureVersion:            &executionInfo.ClientFeatureVersion,
+		ClientImpl:                      &executionInfo.ClientImpl,
+		CurrentVersion:                  common.Int64Ptr(common.EmptyVersion),
+		SignalCount:                     common.Int64Ptr(int64(executionInfo.SignalCount)),
+		HistorySize:                     &executionInfo.HistorySize,
+		CronSchedule:                    &executionInfo.CronSchedule,
+		CompletionEventBatchID:          &executionInfo.CompletionEventBatchID,
+		HasRetryPolicy:                  &executionInfo.HasRetryPolicy,
+		RetryAttempt:                    common.Int64Ptr(int64(executionInfo.Attempt)),
+		RetryInitialIntervalSeconds:     &executionInfo.InitialInterval,
+		RetryBackoffCoefficient:         &executionInfo.BackoffCoefficient,
+		RetryMaximumIntervalSeconds:     &executionInfo.MaximumInterval,
+		RetryMaximumAttempts:            &executionInfo.MaximumAttempts,
+		RetryExpirationSeconds:          &executionInfo.ExpirationSeconds,
+		RetryExpirationTimeNanos:        common.Int64Ptr(executionInfo.ExpirationTime.UnixNano()),
+		RetryNonRetryableErrors:         executionInfo.NonRetriableErrors,
+		EventStoreVersion:               &executionInfo.EventStoreVersion,
+		EventBranchToken:                executionInfo.BranchToken,
+		AutoResetPoints:                 executionInfo.AutoResetPoints.Data,
+		AutoResetPointsEncoding:         common.StringPtr(string(executionInfo.AutoResetPoints.GetEncoding())),
 	}
 
 	completionEvent := executionInfo.CompletionEvent
